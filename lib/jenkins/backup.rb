@@ -53,8 +53,20 @@ module Jenkins
 
       views_dir = "#{tmp_dir}/views"
       Dir.mkdir(views_dir)
-      views = @client.views.list
+      views = @client.view.list
       metadata[:views] = {}
+      metadata[:views][:count] = views.length
+      metadata[:views][:details] = []
+      views.each do |view|
+        puts "Obtaining xml for #{view}"
+        xml = @client.view.get_config(view)
+        File.open("#{views_dir}/#{view}.xml", "w") { |f| f.write(xml) }
+        metadata[:views][:details] << {
+          :view_name => view,
+          :job_names => @client.view.list_jobs(view)
+        }
+      end
+
 
       File.open("#{tmp_dir}/metadata.yml", "w") { |f| f.write(metadata.to_yaml) }
 
@@ -91,6 +103,9 @@ module Jenkins
       jobs_dir = "#{tmp_dir}/jobs"
       Dir.mkdir(jobs_dir)
 
+      views_dir = "#{tmp_dir}/views"
+      Dir.mkdir(views_dir)
+
       puts "Restoring backup to Jenkins"
       Archive.read_open_filename(name) do |ar|
         while entry = ar.next_header
@@ -105,6 +120,8 @@ module Jenkins
       # Create jobs
       restore_jobs(jobs_dir, metadata[:jobs])
 
+      # Restore views
+      restore_views(views_dir, metadata[:views])
       # Get rid of the temp directory
       FileUtils.rm_rf(tmp_dir)
     end
@@ -117,8 +134,20 @@ module Jenkins
         puts "Creating job: #{job}..."
         @client.job.create(job, xml)
       end
-
     end
+
+    def restore_views(views_dir, view_metadata)
+      view_metadata[:details].each do |view|
+        next if view[:view_name] == "All"
+        puts "Creating view: #{view[:view_name]}..."
+        @client.view.create_list_view(:name => view[:view_name])
+        view[:job_names].each do |job|
+          puts "Adding #{job} to #{view[:view_name]} view..."
+          @client.view.add_job(view[:view_name], job)
+        end
+      end
+    end
+
   end
 end
 
