@@ -85,11 +85,6 @@ module Jenkins
     end
 
     def restore(name, options = {})
-      client = JenkinsApi::Client.new(
-        :server_ip => server_ip,
-        :username => username,
-        :password => password
-      )
 
       tmp_dir = Dir.mktmpdir
       puts "Temp dir: #{tmp_dir}"
