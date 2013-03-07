@@ -23,7 +23,7 @@ module Jenkins
       )
     end
 
-    def backup(options = {})
+    def backup(name = "jenkins", options = {})
       puts "Creating a backup of Jenkins Configuration from #{server_ip}"
       metadata = {:jobs => {}}
 
@@ -58,12 +58,26 @@ module Jenkins
       metadata[:views][:count] = views.length
       metadata[:views][:details] = []
       views.each do |view|
+        next if view == "All"
         puts "Obtaining xml for #{view}"
         xml = @client.view.get_config(view)
         File.open("#{views_dir}/#{view}.xml", "w") { |f| f.write(xml) }
+        job_names = @client.view.list_jobs(view)
+        filter_queue = xml.match(/<filterQueue>(.*)<\/filterQueue>/)[1]
+        filter_executors = xml.match(/<filterExecutors>(.*)<\/filterExecutors>/)[1]
+        regex = xml.match(/<includeRegex>(.*)<\/includeRegex>/)[1]
+        unmatched_jobs = []
+        job_names.each do |job|
+          unless regex && job =~ /#{regex}/
+            unmatched_jobs << job
+          end
+        end
         metadata[:views][:details] << {
           :view_name => view,
-          :job_names => @client.view.list_jobs(view)
+          :filter_queue => filter_queue,
+          :filter_executors => filter_executors,
+          :regex => regex,
+          :job_names => unmatched_jobs
         }
       end
 
@@ -71,7 +85,7 @@ module Jenkins
       File.open("#{tmp_dir}/metadata.yml", "w") { |f| f.write(metadata.to_yaml) }
 
       Archive.write_open_filename(
-        "jenkins-#{timestamp.to_i}.tar.gz",
+        "#{name}-#{timestamp.to_i}.tar.gz",
         Archive::COMPRESSION_GZIP,
         Archive::FORMAT_TAR
       ) do |ar|
