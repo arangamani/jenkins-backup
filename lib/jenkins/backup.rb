@@ -84,6 +84,15 @@ module Jenkins
             ar.write_data(open(fn) { |f| f.read})
           end
         end
+        Dir.glob("#{views_dir}/*xml").each do |fn|
+          short_name = fn.split("#{tmp_dir}/").last
+          ar.new_entry do |entry|
+            entry.copy_stat(fn)
+            entry.pathname = short_name
+            ar.write_header(entry)
+            ar.write_data(open(fn) { |f| f.read})
+          end
+        end
         metadata_fn = "#{tmp_dir}/metadata.yml"
         ar.new_entry do |entry|
           entry.copy_stat(metadata_fn)
