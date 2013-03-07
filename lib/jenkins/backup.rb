@@ -2,6 +2,7 @@
 require 'jenkins/configuration'
 require 'jenkins_api_client'
 require 'tmpdir'
+require 'fileutils'
 require 'libarchive'
 
 module Jenkins
@@ -24,6 +25,14 @@ module Jenkins
         :password => password
       )
 
+      # General information about backup
+      timestamp = Time.now
+      metadata[:timestamp] = timestamp
+      metadata[:created_by] = username
+      metadata[:server_ip] = server_ip
+      metadata[:server_port] = server_port || 8080
+      metadata[:contents] = "jobs"
+
       tmp_dir = Dir.mktmpdir
       puts "Temp Dir: #{tmp_dir}"
       # Jobs
@@ -38,9 +47,14 @@ module Jenkins
         xml = client.job.get_config(job)
         File.open("#{jobs_dir}/#{job}.xml", "w") { |f| f.write(xml) }
       end
-      File.open("#{tmp_dir}/metadata.json", "w") { |f| f.write(metadata.to_json) }
 
-      Archive.write_open_filename("jenkins.tar.gz", Archive::COMPRESSION_GZIP, Archive::FORMAT_TAR) do |ar|
+      File.open("#{tmp_dir}/metadata.yml", "w") { |f| f.write(metadata.to_yaml) }
+
+      Archive.write_open_filename(
+        "jenkins-#{timestamp.to_i}.tar.gz",
+        Archive::COMPRESSION_GZIP,
+        Archive::FORMAT_TAR
+      ) do |ar|
         Dir.glob("#{jobs_dir}/*xml").each do |fn|
           short_name = fn.split("#{tmp_dir}/").last
           ar.new_entry do |entry|
@@ -50,14 +64,15 @@ module Jenkins
             ar.write_data(open(fn) { |f| f.read})
           end
         end
-        metadata_fn = "#{tmp_dir}/metadata.json"
+        metadata_fn = "#{tmp_dir}/metadata.yml"
         ar.new_entry do |entry|
           entry.copy_stat(metadata_fn)
-          entry.pathname = "metadata.json"
+          entry.pathname = "metadata.yml"
           ar.write_header(entry)
           ar.write_data(open(metadata_fn) { |f| f.read})
         end
       end
+      FileUtils.rm_rf tmp_dir
       puts metadata.inspect
     end
 
