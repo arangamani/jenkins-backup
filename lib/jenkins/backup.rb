@@ -29,6 +29,7 @@ module Jenkins
 
       # General information about backup
       timestamp = Time.now
+      start_time = timestamp
       metadata[:timestamp] = timestamp
       metadata[:created_by] = username
       metadata[:server_ip] = server_ip
@@ -116,8 +117,9 @@ module Jenkins
       File.open("#{tmp_dir}/metadata.yml", "w") { |f| f.write(metadata.to_yaml) }
 
       # Open the archive
+      archive_name = "#{name}-#{timestamp.to_i}.tar.gz"
       archive = Archive.write_open_filename(
-        "#{name}-#{timestamp.to_i}.tar.gz",
+        archive_name,
         Archive::COMPRESSION_GZIP,
         Archive::FORMAT_TAR
       )
@@ -134,10 +136,16 @@ module Jenkins
       archive.close
       FileUtils.rm_rf(tmp_dir)
       puts metadata.inspect
+
+      end_time = Time.now
+
+      puts "Backup complete! Time took: #{end_time - start_time} seconds."
+      archive_name
     end
 
     def restore(name, options = {})
 
+      start_time = Time.now
       tmp_dir = Dir.mktmpdir
       puts "Temp dir: #{tmp_dir}"
       jobs_dir = "#{tmp_dir}/jobs"
@@ -158,12 +166,15 @@ module Jenkins
       puts metadata.inspect
 
       # Create jobs
-      restore_jobs(jobs_dir, metadata[:jobs])
+      restore_jobs(jobs_dir, metadata[:jobs], options)
 
       # Restore views
-      restore_views(views_dir, metadata[:views])
+      restore_views(views_dir, metadata[:views], options)
       # Get rid of the temp directory
       FileUtils.rm_rf(tmp_dir)
+
+      end_time = Time.now
+      puts "Restore complete! Time took: #{end_time - start_time} seconds."
     end
 
     private
@@ -180,22 +191,42 @@ module Jenkins
       end
     end
 
-    def restore_jobs(jobs_dir, job_metadata)
+    def restore_jobs(jobs_dir, job_metadata, options)
+      current_jobs = @client.job.list_all
       job_metadata[:names].each do |job|
-        xml = File.read("#{jobs_dir}/#{job}.xml")
-        puts "Creating job: #{job}..."
-        @client.job.create(job, xml)
+        if current_jobs.include?(job) && !options[:overwrite_jobs]
+          puts "#{job} already exists, skipping..."
+        else
+          xml = File.read("#{jobs_dir}/#{job}.xml")
+          if options[:overwrite_jobs]
+            puts "Removing existing #{job} and creating..."
+            @client.job.delete(job)
+          else
+            puts "Creating job: #{job}..."
+          end
+          @client.job.create(job, xml)
+        end
       end
     end
 
-    def restore_views(views_dir, view_metadata)
+    def restore_views(views_dir, view_metadata, options)
+      current_views = @client.view.list
       view_metadata[:details].each do |view|
         next if view[:view_name] == "All"
-        puts "Creating view: #{view[:view_name]}..."
-        @client.view.create_list_view(:name => view[:view_name])
-        view[:job_names].each do |job|
-          puts "Adding #{job} to #{view[:view_name]} view..."
-          @client.view.add_job(view[:view_name], job)
+        if current_views.include?(view[:view_name]) && !options[:overwrite_views]
+          puts "#{view[:view_name]} already exists.. skipping creation..."
+        else
+          if options[:overwrite_views]
+            puts "Removing existing #{view[:view_name]} and creating..."
+            @client.view.delete(view[:view_name])
+          else
+            puts "Creating view: #{view[:view_name]}..."
+          end
+          @client.view.create_list_view(:name => view[:view_name])
+          view[:job_names].each do |job|
+            puts "Adding #{job} to #{view[:view_name]} view..."
+            @client.view.add_job(view[:view_name], job)
+          end
         end
       end
     end
